@@ -1,0 +1,153 @@
+plugins {
+	id 'fabric-loom' version '1.15.5'
+	id 'maven-publish'
+}
+
+version = project.plugin_version
+group = project.maven_group
+
+configurations {
+	rusherhackApi
+	rusherhackApi.canBeResolved(true)
+	compileOnly.extendsFrom(rusherhackApi)
+	productionRuntime {
+		extendsFrom configurations.minecraftLibraries
+		extendsFrom configurations.loaderLibraries
+		extendsFrom configurations.minecraftRuntimeLibraries
+	}
+}
+
+repositories {
+	maven {
+		name = "rusherhack"
+		url = "https://maven.rusherhack.org/snapshots"
+	}
+
+	maven {
+		name = "ParchmentMC"
+		url = "https://maven.parchmentmc.org"
+	}
+
+	maven {
+		name = "Modrinth"
+		url = "https://api.modrinth.com/maven"
+	}
+
+	mavenCentral()
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	productionRuntime(modImplementation("net.fabricmc:fabric-loader:${project.fabric_loader_version}"))
+	productionRuntime("net.fabricmc:intermediary:${project.minecraft_version}")
+
+	mappings loom.layered() {
+		officialMojangMappings()
+		parchment("org.parchmentmc.data:parchment-1.21.4:2025.03.23@zip")
+	}
+
+	rusherhackApi "org.rusherhack:rusherhack-api:$minecraft_version-SNAPSHOT"
+
+	modCompileOnly files("lib/XaeroPlus.jar")
+	compileOnly files("lib/Baritone.jar")
+	compileOnly "net.lenni0451:LambdaEvents:2.4.2"
+}
+
+
+
+tasks.register('runPlugin', JavaExec) {
+	group = "build"
+	dependsOn remapJar, downloadAssets, copyPluginToRunDir
+	classpath.from configurations.productionRuntime
+	mainClass = "net.fabricmc.loader.impl.launch.knot.KnotClient"
+	workingDir = file("run")
+
+	doFirst {
+		classpath.from loom.minecraftProvider.minecraftClientJar
+		workingDir.mkdirs()
+
+		args(
+				"--assetIndex", loom.minecraftProvider.versionInfo.assetIndex().fabricId(loom.minecraftProvider.minecraftVersion()),
+				"--assetsDir", new File(loom.files.userCache, "assets").absolutePath,
+				"--gameDir", workingDir.absolutePath
+		)
+
+		def rusherLoaderJarFile = project.layout.getProjectDirectory().file("lib/rusherhack-loader.jar").asFile
+		if (!rusherLoaderJarFile.exists()) {
+			throw new GradleException("rusherhack-loader.jar must be copied to the lib directory!")
+		}
+		def rusherLoaderJarPath = project.layout.getProjectDirectory().file("lib/rusherhack-loader.jar").asFile.absolutePath
+
+		jvmArgs(
+				"-Drusherhack.enablePlugins=true",
+				"-Dfabric.addMods=${rusherLoaderJarPath}",
+		)
+	}
+}
+
+tasks.register("copyPluginToRunDir", Copy) {
+	group = "build"
+	dependsOn remapJar
+	from remapJar.outputs
+	into file("run/rusherhack/plugins")
+}
+
+loom {
+
+	//apply accesswidener from rusherhack-api
+	for (final def f in zipTree(this.project.configurations.rusherhackApi.singleFile)) {
+		if (f.name == "rusherhack.accesswidener") {
+			accessWidenerPath = f
+		}
+	}
+
+	//disable run configs
+	runConfigs.configureEach {
+		ideConfigGenerated = false
+	}
+}
+
+def targetJavaVersion = 21
+tasks.withType(JavaCompile).configureEach {
+	// ensure that the encoding is set to UTF-8, no matter what the system default is
+	// this fixes some edge cases with special characters not displaying correctly
+	// see http://yodaconditions.net/blog/fix-for-java-file-encoding-problems-with-gradle.html
+	// If Javadoc is generated, this must be specified in that task too.
+	it.options.encoding = "UTF-8"
+	if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible()) {
+		it.options.release = targetJavaVersion
+	}
+}
+
+java {
+	def javaVersion = JavaVersion.toVersion(targetJavaVersion)
+	if (JavaVersion.current() < javaVersion) {
+		toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+	}
+}
+
+base {
+	archivesName = project.archives_base_name
+}
+
+processResources {
+	inputs.property "plugin_version", project.plugin_version
+	inputs.property "minecraft_version", project.minecraft_version
+
+	filesMatching("rusherhack-plugin.json") {
+		expand(
+			plugin_version: project.plugin_version,
+			minecraft_version: project.minecraft_version,
+			project: project
+		)
+	}
+}
+
+jar {
+	manifest {
+		//attributes.clear()
+		attributes(
+				"Minecraft-Version": project.minecraft_version
+		)
+	}
+}

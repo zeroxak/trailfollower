@@ -1,0 +1,16 @@
+{
+  "Plugin-Class": "org.example.ElytraSwap",
+  "Name": "ElytraSwap",
+  "Version": "${plugin_version}",
+  "Description": "Equip broken Elytras to repair at XP farms",
+  "Authors": [
+    "Random_Traveller",
+    "Z1"
+  ],
+  "Minecraft-Versions": [
+    "1.20.4",
+    "1.21",
+    "1.21.4",
+    "1.21.11"
+  ]
+}
